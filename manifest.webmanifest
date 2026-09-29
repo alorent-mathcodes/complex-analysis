@@ -1,0 +1,28 @@
+{
+  "name": "Complex Analysis — lecture notes",
+  "short_name": "Complex Analysis",
+  "description": "Complex Analysis — lecture notes with animated figures",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f7f4",
+  "theme_color": "#2b2d31",
+  "icons": [
+    {
+      "src": "reader/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "reader/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "reader/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

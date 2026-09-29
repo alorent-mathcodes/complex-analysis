@@ -1,0 +1,1072 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyFig Reader</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2b2d31">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/web/pdf_viewer.css">
+<style>
+  :root {
+    --bar: #2b2d31; --bar-fg: #e8e8ea; --bar-dim: #9a9ca3; --accent: #4f8cff;
+    --page-bg: #5a5c62; --panel: #1e1f22;
+  }
+  html, body { margin: 0; height: 100%; background: var(--page-bg); font: 14px system-ui, sans-serif; }
+  #bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 42px; display: flex; align-items: center;
+    gap: 8px; padding: 0 10px; background: var(--bar); color: var(--bar-fg); box-sizing: border-box;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4); z-index: 10; white-space: nowrap; overflow-x: auto;
+  }
+  #bar button, #bar input, #bar label.btn {
+    background: #3a3c42; color: var(--bar-fg); border: 1px solid #4a4c53; border-radius: 5px;
+    height: 28px; padding: 0 9px; font: inherit; cursor: pointer;
+  }
+  #bar button:hover, #bar label.btn:hover { background: #474a51; }
+  #bar label.btn { display: inline-flex; align-items: center; }
+  #bar input[type=file] { display: none; }
+  #pageNum { width: 44px; text-align: right; cursor: text; }
+  #find { width: 150px; cursor: text; }
+  #title { font-weight: 600; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
+  #py { margin-left: auto; color: var(--bar-dim); font-size: 12.5px; }
+  #py b { color: var(--bar-fg); font-weight: 500; }
+  .sep { width: 1px; height: 22px; background: #4a4c53; }
+  /* one viewer per open document; only the current one is visible */
+  .viewerContainer { position: absolute; top: 42px; bottom: 0; left: 0; right: 0; overflow: auto; visibility: hidden; }
+  .viewerContainer.shown { visibility: visible; }
+  body.hasTabs .viewerContainer { top: 76px; }
+  .pdfViewer .page { box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+
+  #tabs {
+    position: absolute; top: 42px; left: 0; right: 0; height: 34px; display: none; align-items: flex-end;
+    gap: 2px; padding: 0 8px; background: #202124; box-sizing: border-box; overflow-x: auto; z-index: 10;
+  }
+  body.hasTabs #tabs { display: flex; }
+  #tabs .tab {
+    display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 12px; max-width: 240px;
+    background: #2e3034; color: #b9bbc2; border-radius: 7px 7px 0 0; cursor: pointer; flex-shrink: 0;
+    font-size: 13px; white-space: nowrap;
+  }
+  #tabs .tab span { overflow: hidden; text-overflow: ellipsis; }
+  #tabs .tab:hover { background: #393b40; color: #e8e8ea; }
+  #tabs .tab.on { background: #5a5c62; color: #fff; }
+  #tabs .tab button {
+    background: none; border: 0; color: inherit; width: 20px; height: 20px; border-radius: 50%;
+    cursor: pointer; font-size: 11px; padding: 0; opacity: .7;
+  }
+  #tabs .tab button:hover { background: rgba(255,255,255,.18); opacity: 1; }
+  #tabs .plus {
+    align-self: center; background: none; border: 0; color: #b9bbc2; font-size: 19px; width: 28px; height: 28px;
+    border-radius: 6px; cursor: pointer; flex-shrink: 0;
+  }
+  #tabs .plus:hover { background: #393b40; color: #fff; }
+  #brand { font-weight: 700; letter-spacing: .2px; background: none !important; border-color: transparent !important; }
+  #brand:hover { background: #3a3c42 !important; }
+  #back:disabled { opacity: .35; cursor: default; }
+  .docOnly { display: none !important; }
+  body.hasDoc:not(.showHome) .docOnly { display: revert !important; }
+
+  /* start screen: what this is, how to use it */
+  #home {
+    --paper: #f7f7f4; --ink: #1d1e21; --muted: #6a6d75; --rule: #e3e3de; --soft: #ededea;
+    --accent2: #3a67d0; --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+      "URW Palladio L", "P052", Charter, "Bitstream Charter", Georgia, serif;
+    position: absolute; inset: 42px 0 0 0; overflow: auto; background: var(--paper); color: var(--ink);
+    z-index: 8; line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  @media (prefers-color-scheme: dark) {
+    #home { --paper: #18191c; --ink: #ecebe6; --muted: #9b9ea6; --rule: #2c2e33; --soft: #222428; --accent2: #86a8ff; }
+  }
+  body.hasTabs #home { top: 76px; }
+  body.hasDoc:not(.showHome) #home { display: none; }
+  #home .wrap { max-width: 800px; margin: 0 auto; padding: 56px 28px 40px; }
+  #home .hero { display: flex; align-items: center; gap: 16px; }
+  #home .mark { width: 54px; height: 54px; flex-shrink: 0; }
+  #home h1 { font-family: var(--serif); font-weight: 500; font-size: 46px; letter-spacing: -0.01em; margin: 0; line-height: 1.1; }
+  #home .tagline { font-family: var(--serif); font-style: italic; font-size: 22px; color: var(--muted); margin: 6px 0 0; }
+  #home .wave { display: block; width: 100%; height: 86px; margin: 22px 0 4px; overflow: visible; }
+  #home .wave .base { stroke: var(--rule); stroke-width: 1; }
+  #home .wave .piece { stroke: var(--ink); stroke-width: 2.2; fill: none; stroke-linecap: round; }
+  #home .wave .rest { stroke: var(--muted); stroke-width: 1.2; fill: none; opacity: .55; }
+  #home .wave .tick { stroke: var(--muted); stroke-width: 1; }
+  #home .wave text { fill: var(--muted); font: italic 14px var(--serif); }
+  #home .lead { font-size: 19px; color: var(--ink); margin: 18px 0 28px; max-width: 680px; }
+  #home .actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 4px 0; border-radius: 12px; }
+  body.drag #home .actions { outline: 2px dashed var(--accent2); outline-offset: 10px; }
+  #home .primary {
+    font: inherit; font-weight: 600; font-size: 17px; background: var(--ink); color: var(--paper); border: 0;
+    border-radius: 999px; padding: 12px 26px; cursor: pointer; transition: transform .12s, opacity .12s;
+  }
+  #home .primary:hover { transform: translateY(-1px); opacity: .9; }
+  #home .hintline { color: var(--muted); font-size: 16px; }
+  #home .label {
+    font-size: 13px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+    margin: 46px 0 12px; display: flex; align-items: center; gap: 12px;
+  }
+  #home .label::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+  #home .label:has(+ #homeDocs:empty) { display: none; }
+  #home .doc {
+    display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; font: inherit; color: inherit;
+    background: none; border: 0; border-bottom: 1px solid var(--rule); padding: 14px 4px; cursor: pointer; font-size: 17px;
+  }
+  #home .doc:hover { background: var(--soft); }
+  #home .doc svg { width: 18px; height: 22px; flex-shrink: 0; color: var(--muted); }
+  #home .doc .name { font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #home .doc .meta { color: var(--muted); font-size: 15px; white-space: nowrap; }
+  #home .doc .go { color: var(--muted); transition: transform .12s; }
+  #home .doc:hover .go { transform: translateX(3px); color: var(--ink); }
+  #home .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 34px; margin: 0; padding: 0; list-style: none; }
+  #home .steps li { display: flex; gap: 14px; }
+  #home .num {
+    font-family: var(--serif); font-size: 17px; width: 32px; height: 32px; border: 1px solid var(--rule);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--muted);
+  }
+  #home .steps h3, #home .notes h3 { font-size: 17px; margin: 2px 0 3px; font-weight: 600; }
+  #home .steps p, #home .notes p { margin: 0; font-size: 16px; color: var(--muted); }
+  #home .steps b, #home .notes b { color: var(--ink); font-weight: 600; }
+  #home kbd {
+    font: 13.5px ui-monospace, monospace; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px;
+    padding: 0 4px; color: var(--ink); background: var(--paper);
+  }
+  #home .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+  #home code { font: 14px ui-monospace, monospace; background: var(--soft); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+  #home .foot { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 15px; color: var(--muted); }
+  @media (max-width: 640px) {
+    #home .steps, #home .notes { grid-template-columns: 1fr; }
+    #home h1 { font-size: 36px; }
+  }
+
+  #hint {
+    position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 9;
+    background: #1e1f22; color: #fff; padding: 8px 12px 8px 16px; border-radius: 8px; display: none;
+    box-shadow: 0 3px 12px rgba(0,0,0,.35); align-items: center; gap: 12px; font-size: 14px;
+    max-width: calc(100vw - 24px); box-sizing: border-box;
+  }
+  #hint.on { display: flex; }
+  body.hasTabs #hint { top: 86px; }
+  #hint button { background: none; border: 0; color: #bbb; font-size: 16px; cursor: pointer; }
+
+  /* the live figure sits exactly on top of the static picture */
+  .pyfig { position: absolute; inset: 0; cursor: pointer; }
+  .pyfig canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: none; background: #fff; }
+  .pyfig.live canvas { display: block; }
+  /* a figure with a recorded video plays that, in the same place, instead of the canvas */
+  .pyfig video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: none; background: #fff; }
+  .pyfig.live.vid video { display: block; }
+  .pyfig.live.vid canvas { display: none; }
+  .pyfig .play {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: 64px; height: 64px; border-radius: 50%; background: rgba(30,31,34,.72); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 26px; padding-left: 5px;
+    box-sizing: border-box; box-shadow: 0 2px 10px rgba(0,0,0,.3); transition: transform .12s, background .12s;
+  }
+  .pyfig:hover .play { transform: translate(-50%,-50%) scale(1.08); background: rgba(79,140,255,.9); }
+  .pyfig.live .play { display: none; }
+  .pyfig .msg {
+    position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); background: rgba(30,31,34,.82);
+    color: #fff; font-size: 12.5px; padding: 4px 10px; border-radius: 12px; display: none; white-space: nowrap;
+  }
+  .pyfig .msg.on { display: block; }
+  .pyfig .ctl {   /* just outside the figure's right edge, so they never cover it */
+    position: absolute; right: -36px; top: 0; display: none; gap: 4px; flex-direction: column;
+    padding-left: 6px;
+  }
+  .pyfig.live:hover .ctl, .pyfig:not(.live):hover .ctl { display: flex; }
+  .pyfig .ctl button {
+    width: 30px; height: 28px; border: 0; border-radius: 5px; background: rgba(30,31,34,.78);
+    color: #fff; font-size: 13px; cursor: pointer; padding: 0;
+  }
+  .pyfig .ctl button:hover { background: var(--accent); }
+  .pyfig .ctl [data-a=python] { display: none; font: 600 10px system-ui, sans-serif; opacity: .8; }
+  .pyfig.vid .ctl [data-a=python] { display: block; }
+
+  #code {
+    position: absolute; top: 42px; right: 0; bottom: 0; width: min(620px, 92vw); background: var(--panel);
+    color: #dcdde0; z-index: 9; display: none; flex-direction: column; box-shadow: -3px 0 12px rgba(0,0,0,.4);
+  }
+  #code.on { display: flex; }
+  body.hasTabs #code { top: 76px; }
+  #code header { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid #333; }
+  #code header span { flex: 1; font-weight: 600; }
+  #code header button { background: #3a3c42; color: #eee; border: 1px solid #4a4c53; border-radius: 5px; height: 26px; cursor: pointer; }
+  #code pre { margin: 0; padding: 12px 14px; overflow: auto; flex: 1; font: 12.5px/1.45 ui-monospace, monospace; }
+
+  /* ---- phones, tablets, touch screens ---- */
+  #brand .narrow, #findBtn { display: none; }
+  .viewerContainer { touch-action: pan-x pan-y; }        /* two-finger pinch is handled below */
+  #py[data-state]::before { content: ""; display: none; }
+  @media (max-width: 720px) {
+    #bar { gap: 5px; padding: 0 6px; }
+    #brand .wide, #back .wide, #fit, #zoomIn, #zoomOut, #bar .sep { display: none !important; }
+    #brand .narrow { display: inline; }
+    #bar button, #bar label.btn { padding: 0 8px; }
+    #pageNum { width: 34px; }
+    body.hasDoc:not(.showHome) #findBtn { display: inline-block; }
+    #find { display: none !important; }
+    body.findOpen:not(.showHome) #find {
+      display: block !important; position: absolute; top: 48px; right: 8px; width: min(260px, 70vw);
+      height: 36px; z-index: 11; box-shadow: 0 3px 12px rgba(0,0,0,.4);
+    }
+    #py { font-size: 0; margin-left: auto; }
+    #py[data-state]::before { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e0a93b; }
+    #py[data-state="ready"]::before { background: #3ecf6e; }
+    #py[data-state="failed"]::before { background: #e5534b; }
+    #tabs .tab { max-width: 170px; }
+    #code { width: 100vw; }
+    #home .wrap { padding: 32px 20px 32px; }
+  }
+  @media (hover: none) {
+    /* no hovering on a touch screen: a playing figure shows its buttons, inside the figure */
+    .pyfig.live .ctl { display: flex; right: 6px; top: 6px; flex-direction: row; padding: 0; }
+    .pyfig .ctl button { width: 36px; height: 34px; font-size: 15px; }
+    #home .hintline { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="brand" title="Start screen: what this reader is and how to use it"><span class="wide">PyFig Reader</span><span class="narrow">PyFig</span></button>
+  <button id="back" class="docOnly" title="Back (Alt+←): to where you were before following a link, the previous document, or the start screen">←<span class="wide"> Back</span></button>
+  <label class="btn" id="openLbl" title="Open one or more PDFs, each in its own tab">Open<input id="file" type="file" accept="application/pdf,.pdf" multiple></label>
+  <div class="sep docOnly"></div>
+  <input id="pageNum" class="docOnly" value="" title="Page"> <span id="pageCount" class="docOnly"></span>
+  <div class="sep docOnly"></div>
+  <button id="zoomOut" class="docOnly" title="Zoom out">−</button>
+  <button id="zoomIn" class="docOnly" title="Zoom in">+</button>
+  <button id="fit" class="docOnly" title="Fit width">Fit</button>
+  <div class="sep docOnly"></div>
+  <input id="find" class="docOnly" placeholder="Find (Enter)">
+  <button id="findBtn" class="docOnly" title="Find in the document">⌕</button>
+  <span id="py"></span>
+</div>
+<div id="tabs"></div>
+<div id="stack"></div>
+<div id="hint"><span id="hintText"></span><button id="hintClose" title="Dismiss">✕</button></div>
+
+<div id="home"><div class="wrap">
+  <div class="hero">
+    <svg class="mark" viewBox="0 0 512 512" aria-hidden="true">
+      <rect x="70" y="30" width="372" height="452" rx="34" fill="#fafafc" stroke="#3c3e44" stroke-width="10"/>
+      <rect x="120" y="100" width="272" height="12" rx="6" fill="#c8cbd2"/><rect x="120" y="130" width="272" height="12" rx="6" fill="#c8cbd2"/>
+      <rect x="120" y="160" width="180" height="12" rx="6" fill="#c8cbd2"/>
+      <path d="M120 300 C 200 300, 215 215, 256 215 S 312 300, 392 300" fill="none" stroke="#1f77b4" stroke-width="12" stroke-linecap="round"/>
+      <circle cx="356" cy="396" r="80" fill="#4f8cff"/><path d="M335 356 L335 436 L403 396 Z" fill="#fff"/>
+    </svg>
+    <div>
+      <h1>PyFig Reader</h1>
+      <p class="tagline">A PDF reader in which the figures move.</p>
+    </div>
+  </div>
+
+  <svg class="wave" id="wave" viewBox="0 0 640 86" preserveAspectRatio="none" aria-hidden="true">
+    <line class="base" x1="0" y1="72" x2="640" y2="72"/>
+    <path class="rest" id="waveRest"/><path class="piece" id="wavePiece"/>
+    <line class="tick" x1="240" y1="68" x2="240" y2="76"/><line class="tick" x1="400" y1="68" x2="400" y2="76"/>
+    <text x="240" y="86" text-anchor="middle">x₁</text><text x="400" y="86" text-anchor="middle">x₂</text>
+  </svg>
+
+  <p class="lead">It reads any PDF. A figure that carries its own Python code gets a ▶ button:
+  click it, and the figure plays as an animation, in place on the page.</p>
+
+  <div class="actions">
+    <button id="homeOpen" class="primary">Open PDFs…</button>
+    <span class="hintline">or drop them anywhere in this window</span>
+  </div>
+
+  <div class="label">Open documents</div>
+  <div id="homeDocs"></div>
+
+  <div class="label">How to use it</div>
+  <ol class="steps">
+    <li><span class="num">1</span><div><h3>Open</h3><p>Open one PDF or several; each gets a tab.
+      Any PDF works. Those without live figures simply read as usual.</p></div></li>
+    <li><span class="num">2</span><div><h3>Wait a moment</h3><p>Figures with a recorded video play at
+      once. Others need a few seconds after opening, until the top right says <b>Python: ready</b>.</p></div></li>
+    <li><span class="num">3</span><div><h3>Play</h3><p>Click <b>▶</b> on a figure, and click again to pause.
+      Hover for <b>⟲</b>, from the start, <b>■</b>, the printed figure, and <b>&lt;/&gt;</b>, its code.</p></div></li>
+    <li><span class="num">4</span><div><h3>Go back</h3><p><b>← Back</b> or <kbd>Alt</kbd>+<kbd>←</kbd>
+      returns to where you were after a link or a tab switch, and finally here.</p></div></li>
+  </ol>
+
+  <div class="label">Behind the page</div>
+  <div class="notes">
+    <div><h3>An ordinary PDF</h3><p>A live figure is a normal picture with its script inside the file.
+      Other viewers show the picture, and clicking it opens the animation on the web.</p></div>
+    <div><h3>Python, right here</h3><p id="pyCard">The reader starts Python (Pyodide) in this window.
+      The first time, that is a 30&nbsp;MB download; after that it is ready in about 5 seconds.</p></div>
+    <div><h3>Safe to run</h3><p>Code runs only when you click a figure, in the browser's sandbox. It
+      cannot touch your files, and nothing is uploaded.</p></div>
+  </div>
+
+  <p class="foot">For authors: a figure script defines <code>fig</code> and <code>frame(k)</code> and ends
+  with <code>play(…)</code>; in LaTeX, <code>\pyfig{name}</code> places it and embeds the script.</p>
+</div></div>
+<div id="code"><header><span id="codeName"></span>
+  <button id="codeCopy">Copy</button><button id="codeSave">Save .py</button><button id="codeClose">✕</button>
+</header><pre id="codeText"></pre></div>
+
+<script type="module">
+const PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38";
+const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
+const $ = (id) => document.getElementById(id);
+const blobURL = (code) => URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+
+// (a page that must work from a local folder, like the offline copy of a website, has PDF.js
+// loaded beforehand by ordinary (classic) scripts, since a local page cannot import modules)
+const pdfjsLib = globalThis.pdfjsLib || await import(PDFJS + "/build/pdf.min.mjs");
+globalThis.pdfjsLib = pdfjsLib;
+const V = globalThis.pdfjsViewer || await import(PDFJS + "/web/pdf_viewer.mjs");
+// cross-origin workers are not allowed, so start them from a local blob; a page
+// opened as a local file cannot do even that, and PDF.js then parses on the main thread
+if (location.protocol === "file:") pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "/build/pdf.worker.min.mjs";
+else pdfjsLib.GlobalWorkerOptions.workerPort =
+  new Worker(blobURL(`import "${PDFJS}/build/pdf.worker.min.mjs";`), { type: "module" });
+
+// Each open document has its own viewer, with its own position, zoom, back history and
+// live figures; the tabs switch between them. One Python serves all of them.
+const docs = [];
+let cur = null, nextId = 1;
+Object.defineProperty(window, "pyfigDemos", { get: () => cur?.demos });   // for testing
+
+$("pageNum").addEventListener("change", (e) => { if (cur) cur.viewer.currentPageNumber = +e.target.value || 1; });
+$("zoomIn").onclick = () => { if (cur) cur.viewer.currentScale = Math.min(cur.viewer.currentScale * 1.2, 6); };
+$("zoomOut").onclick = () => { if (cur) cur.viewer.currentScale = Math.max(cur.viewer.currentScale / 1.2, 0.25); };
+$("fit").onclick = () => { if (cur) cur.viewer.currentScaleValue = "page-width"; };
+window.addEventListener("resize", () => {
+  for (const d of docs) if (d.viewer.currentScaleValue === "page-width") d.viewer.currentScaleValue = "page-width";
+});
+$("find").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || !cur) return;
+  cur.eventBus.dispatch("find", { source: null, type: "again", query: e.target.value, caseSensitive: false,
+    entireWord: false, highlightAll: true, findPrevious: e.shiftKey, matchDiacritics: false });
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "f") { e.preventDefault(); $("find").focus(); $("find").select(); }
+});
+$("findBtn").onclick = () => {
+  const on = document.body.classList.toggle("findOpen");
+  if (on) { $("find").focus(); $("find").select(); }
+};
+$("find").addEventListener("keydown", (e) => { if (e.key === "Escape") document.body.classList.remove("findOpen"); });
+
+// ---------------------------------------------------------------- Python
+// One Python for the whole document, started as soon as a document with
+// demos is opened, so it is ready by the time the reader clicks.
+const WORKER = `
+importScripts("${PYODIDE}pyodide.js");
+const PLAY = \`
+def play(fig, frame, frames, interval, bbox=None):
+    import io
+    from pyodide.ffi import to_js
+    fig.set_dpi(PYFIG_WIDTH_PX / (bbox.width if bbox is not None else fig.get_figwidth()))
+    for k in range(frames):
+        frame(k)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches=bbox)
+        _emit(k, frames, interval, to_js(buf.getvalue()))
+\`;
+let py;
+const ready = (async () => {
+  py = await loadPyodide({ indexURL: "${PYODIDE}" });
+  postMessage({ type: "status", text: "loading numpy, matplotlib" });
+  await py.loadPackage(["numpy", "matplotlib"]);
+  await py.runPythonAsync('import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot, mpl_toolkits.mplot3d');
+  postMessage({ type: "ready" });
+})().catch((err) => postMessage({ type: "status", text: "failed to start: " + err }));
+let queue = Promise.resolve();
+onmessage = (e) => { queue = queue.then(() => run(e.data)); };
+async function run(m) {
+  await ready;
+  const ns = py.globals.get("dict")();
+  try {
+    await py.loadPackagesFromImports(m.src);
+    ns.set("PYFIG_WIDTH_PX", m.widthPx);
+    ns.set("_emit", (k, n, interval, png) => postMessage({ type: "frame", id: m.id, k, n, interval, png }, [png.buffer]));
+    await py.runPythonAsync(PLAY, { globals: ns });
+    await py.runPythonAsync(m.src, { globals: ns });
+    postMessage({ type: "done", id: m.id });
+  } catch (err) {
+    postMessage({ type: "error", id: m.id, text: String(err) });
+  } finally {
+    ns.destroy();
+    py.runPython('import matplotlib.pyplot as plt; plt.close("all")');
+  }
+}`;
+
+let worker = null;
+const pyStatus = (html, state = "busy") => { $("py").innerHTML = html; $("py").dataset.state = state; };
+function startPython() {
+  if (worker) return;
+  pyStatus("Python: <b>starting…</b>");
+  worker = new Worker(blobURL(WORKER));
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === "status" && m.text.startsWith("failed")) pythonFailed(m.text);
+    else if (m.type === "status") pyStatus("Python: <b>" + m.text + "…</b>", "busy");
+    else if (m.type === "ready") pyStatus("Python: <b>ready</b>", "ready");
+    else {
+      const [id, name] = [m.id.slice(0, m.id.indexOf(":")), m.id.slice(m.id.indexOf(":") + 1)];
+      docs.find((d) => String(d.id) === id)?.demos.get(name)?.receive(m);
+    }
+  };
+  // (Python itself could not be loaded, e.g. offline: it comes from the web)
+  worker.onerror = (e) => {
+    if ($("py").dataset.state === "ready") return;
+    e.preventDefault(); console.warn("PyFig: Python did not start:", e.message); pythonFailed("failed to start");
+  };
+}
+// every figure waiting for Python says why nothing comes
+const noPython = () => navigator.onLine === false || location.protocol === "file:" ?
+  "running the Python needs an internet connection" : "Python could not start";
+function pythonFailed(text) {
+  pyStatus("Python: <b>" + text + "…</b>", "failed");
+  for (const d of docs) for (const x of d.demos.values()) if (x.mode === "python" && x.state === "running") {
+    x.state = "error"; x.message(noPython());
+  }
+}
+
+// ---------------------------------------------------------------- live figures
+// A PyFig link carries pyfig=NAME. Its code is NAME.py embedded in the PDF,
+// or, failing that, the compressed copy inside the link itself.
+const MARK = "# ---- end of JupyterLite player ----\n";
+
+async function sourceFromLink(href) {
+  const code = new URL(href).searchParams.get("code") || "";
+  const b64 = (code.match(/b64decode\('([^']+)'\)/) || [])[1];
+  if (!b64) return null;
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const text = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate"))).text();
+  return text.includes(MARK) ? text.split(MARK)[1] : text;
+}
+
+// Frames are kept (compressed) so that a figure loops without redrawing. Past this budget the
+// figures played longest ago release theirs. iPhones and iPads close a tab that uses much memory
+// (an iPad reports itself as a Mac, but with touch).
+const IOS = /iPhone|iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const FRAME_BUDGET = IOS ? 80e6 : 250e6;
+let frameBytes = 0;
+function trimFrames(keep) {
+  if (frameBytes <= FRAME_BUDGET) return;
+  const all = docs.flatMap((d) => [...d.demos.values()]).filter((d) => d !== keep && d.bytes && d.state === "done" && !d.playing);
+  all.sort((a, b) => a.used - b.used);
+  for (const d of all) { if (frameBytes <= FRAME_BUDGET) break; d.forget(); }
+}
+
+// Recorded videos. A document may have videos/NAME.mp4 next to it (made by make_videos.py), listed
+// in videos/index.json with a hash of the script each was made from. A figure whose video matches
+// the script inside the PDF plays the video: it starts at once, with no Python at all. The ⟲/Py
+// buttons restart it, or run the Python instead. Without a video, the Python runs as before.
+function fnv1a(bytes) {                // 32-bit FNV-1a, as in make_videos.py
+  let h = 0x811c9dc5;
+  for (const b of bytes) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, "0");
+}
+// H.264 (High profile); a browser without it (some Linux builds of Chromium and Firefox) runs the Python
+const H264 = document.createElement("video").canPlayType('video/mp4; codecs="avc1.640028"') !== "";
+async function videoIndex(base, list = null) {   // name -> {hash, w, h, ...}; empty if there are no videos
+  if (!base || !H264) return new Map();
+  if (list) return new Map(Object.entries(list.videos || {}));     // index.json given with the PDF
+  try {
+    const idx = JSON.parse(new TextDecoder().decode(await getBytes(new URL("index.json", base).href, { cache: "no-cache" })));
+    return new Map(Object.entries(idx.videos || {}));
+  } catch { return new Map(); }
+}
+
+class Demo {
+  constructor(doc, name, href) {
+    this.doc = doc; this.name = name; this.href = href; this.frames = []; this.n = 0; this.interval = 200;
+    this.state = "idle"; this.playing = false; this.k = 0; this.views = new Set(); this.timer = null;
+  }
+  async source() {
+    if (this.src) return this.src;
+    const att = this.doc.attachments[this.name + ".py"];
+    this.src = att ? new TextDecoder().decode(att.content) : await sourceFromLink(this.href);
+    return this.src;
+  }
+  async toggle() {
+    if (this.state === "idle") return this.start();
+    if (this.state === "error") return;
+    this.playing = !this.playing;
+    this.show();
+  }
+  // the address of this figure's video, if there is one made from the same script
+  async videoURL() {
+    if (this.noVideo) return null;
+    const info = (await this.doc.videosReady).get(this.name);
+    if (!info) return null;
+    const att = this.doc.attachments[this.name + ".py"];
+    if (att && fnv1a(att.content) !== info.hash) return null;       // made from another version
+    return new URL(this.name + ".mp4?h=" + info.hash, this.doc.videoBase).href;
+  }
+  async start() {
+    const url = await this.videoURL();
+    if (url) return this.startVideo(url);
+    const src = await this.source();
+    if (!src) return this.message("no code found for " + this.name);
+    startPython();
+    this.mode = "python";
+    for (const v of this.views) v.el.classList.remove("vid");
+    this.state = "running"; this.playing = true;
+    const v = [...this.views][0];
+    const w = v ? v.el.clientWidth : 600;
+    if ($("py").dataset.state === "failed") { this.state = "error"; return this.message(noPython()); }
+    this.message(/ready/.test($("py").textContent) ? "drawing…" : "starting Python…");
+    worker.postMessage({ id: this.doc.id + ":" + this.name, src, widthPx: Math.round(w * Math.min(devicePixelRatio || 1, 2)) });
+  }
+  async startVideo(url) {
+    this.state = "running"; this.playing = true; this.mode = "video"; this.netVideo = url;
+    const slow = setTimeout(() => this.message("loading the video…"), 400);
+    // A page opened from a local folder cannot read files (fetch and XHR are refused), but a
+    // video element can play one: it plays from the file itself.
+    if (location.protocol === "file:" && new URL(url).protocol === "file:") {
+      clearTimeout(slow);
+      return this.playVideo(url.split("?")[0], 0);
+    }
+    let blob;
+    // the whole file is fetched (it is small): then it plays from memory, loops without the
+    // network, and the service worker can keep it for offline use
+    try { blob = new Blob([await getBytes(url)], { type: "video/mp4" }); }
+    catch (e) { clearTimeout(slow); return this.videoFailed(e.message); }
+    clearTimeout(slow);
+    if (this.mode !== "video") return;                 // switched to Python meanwhile
+    this.playVideo(URL.createObjectURL(blob), blob.size);
+  }
+  playVideo(src, bytes) {
+    const v = this.video = document.createElement("video");
+    v.muted = true; v.loop = true; v.playsInline = true; v.preload = "auto";
+    v.setAttribute("muted", ""); v.setAttribute("playsinline", ""); v.disablePictureInPicture = true;
+    this.videoSrc = v.src = src;
+    this.bytes = bytes; frameBytes += bytes; this.used = performance.now();
+    v.addEventListener("loadeddata", () => {
+      this.message(null); this.state = "done"; this.show(); trimFrames(this);
+    }, { once: true });
+    v.addEventListener("error", () => { if (this.video === v) this.videoFailed("cannot play it"); }, { once: true });
+    for (const w of this.views) w.el.classList.add("vid");
+    this.show();
+  }
+  videoFailed(why) {
+    // some browsers (WebKit on Linux, at least) fail to play a larger video from memory: try
+    // it once from its address instead (the service worker has it too, for offline use)
+    if (this.videoSrc?.startsWith("blob:") && this.netVideo && !this.triedAddress) {
+      this.triedAddress = true;
+      this.dropVideo(); this.mode = "video";
+      return this.playVideo(this.netVideo, 0);
+    }
+    console.warn("PyFig: no video for " + this.name + " (" + why + "); running the Python instead");
+    this.dropVideo(); this.noVideo = true; this.state = "idle"; this.message(null);
+    if (this.playing) this.start();
+  }
+  dropVideo() {
+    const v = this.video;
+    this.mode = null;
+    if (!v) return;
+    this.video = null;
+    v.pause(); v.remove(); v.removeAttribute("src");
+    if (this.videoSrc.startsWith("blob:")) URL.revokeObjectURL(this.videoSrc);
+    frameBytes -= this.bytes || 0; this.bytes = 0;
+    for (const v of this.views) v.el.classList.remove("vid", "live");
+  }
+  placeVideo() {                       // the video sits in the figure's current overlay
+    const v = [...this.views].find((w) => w.el.isConnected);
+    if (this.video && v && this.video.parentElement !== v.el) v.el.insertBefore(this.video, v.canvas.nextSibling);
+  }
+  restart() {
+    if (this.state === "idle") return this.start();
+    this.playing = true;
+    if (this.video) this.video.currentTime = 0;
+    else { this.k = 0; this.draw(); }
+    this.show();
+  }
+  runPython() {                        // leave the video, run the figure's code live
+    this.dropVideo(); this.noVideo = true; this.state = "idle"; this.playing = false;
+    this.start();
+  }
+  stop() {
+    this.playing = false; this.k = 0;
+    if (this.video) this.video.currentTime = 0;
+    this.show(false);
+  }
+  async receive(m) {
+    if (m.type === "error") { this.state = "error"; this.message("error — see the console"); console.error(m.text); return; }
+    if (m.type === "done") { this.state = "done"; return; }
+    this.n = m.n; this.interval = m.interval;
+    // keep the frames compressed (PNG); each is decoded only when it is drawn
+    this.frames[m.k] = new Blob([m.png], { type: "image/png" });
+    this.bytes = (this.bytes || 0) + m.png.byteLength;
+    frameBytes += m.png.byteLength;
+    this.used = performance.now();
+    if (m.k === 0) { this.message(null); this.k = 0; this.draw(); this.tick(); }
+    if (m.k === m.n - 1) trimFrames(this);
+  }
+  tick() {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => {
+      if (!this.playing || !this.frames[(this.k + 1) % this.n]) return;
+      this.k = (this.k + 1) % this.n;
+      this.used = performance.now();
+      this.draw();
+    }, this.interval);
+  }
+  forget() {                          // release the frames; the figure is redrawn if played again
+    clearInterval(this.timer);
+    this.dropVideo();
+    frameBytes -= this.bytes || 0;
+    this.bytes = 0; this.frames = []; this.state = "idle"; this.playing = false; this.k = 0;
+    this.show(false);
+  }
+  async draw() {
+    const blob = this.frames[this.k];
+    if (!blob || this.decoding) return;
+    this.decoding = true;
+    let img;
+    try { img = await createImageBitmap(blob); } finally { this.decoding = false; }
+    for (const v of this.views) {
+      if (!v.el.isConnected) { this.views.delete(v); continue; }
+      v.el.classList.add("live");
+      const c = v.canvas, w = v.el.clientWidth, h = v.el.clientHeight, r = Math.min(devicePixelRatio || 1, 2);
+      if (c.width !== Math.round(w * r)) { c.width = Math.round(w * r); c.height = Math.round(h * r); }
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      v.pause.textContent = this.playing ? "❚❚" : "▶";
+    }
+    img.close();
+  }
+  show(live = true) {
+    if (this.mode === "video") {
+      this.placeVideo();
+      const ready = !!this.video && this.video.readyState >= 2;
+      for (const v of this.views) {
+        v.el.classList.add("vid");
+        v.el.classList.toggle("live", live && ready);
+        v.pause.textContent = this.playing ? "❚❚" : "▶";
+      }
+      if (this.video) {
+        this.used = performance.now();
+        // (a phone in power-saving mode may refuse to play: the figure then waits for a tap)
+        if (live && this.playing) this.video.play().catch(() => {
+          if (!this.video || !this.video.paused) return;
+          this.playing = false;
+          for (const v of this.views) v.pause.textContent = "▶";
+        });
+        else this.video.pause();
+      }
+      return;
+    }
+    for (const v of this.views) {
+      v.el.classList.toggle("live", live && this.frames.length > 0);
+      v.pause.textContent = this.playing ? "❚❚" : "▶";
+    }
+    if (live) this.draw();
+  }
+  message(text) {
+    for (const v of this.views) { v.msg.textContent = text || ""; v.msg.classList.toggle("on", !!text); }
+  }
+  attach(section) {
+    const el = document.createElement("div");
+    el.className = "pyfig";
+    el.title = "Click to play or pause";
+    el.innerHTML = `<canvas></canvas><div class="play">▶</div><div class="msg"></div>
+      <div class="ctl"><button data-a="pause" title="Play / pause">▶</button>
+      <button data-a="restart" title="From the start">⟲</button>
+      <button data-a="stop" title="Back to the static figure">■</button>
+      <button data-a="code" title="Show the Python code">&lt;/&gt;</button>
+      <button data-a="python" title="This is a recording. Run the Python code live instead">Py</button></div>`;
+    const v = { el, canvas: el.querySelector("canvas"), msg: el.querySelector(".msg"), pause: el.querySelector("[data-a=pause]") };
+    el.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const a = e.target.dataset?.a;
+      if (a === "stop") this.stop();
+      else if (a === "restart") this.restart();
+      else if (a === "python") this.runPython();
+      else if (a === "code") showCode(this);
+      else this.toggle();
+    });
+    section.appendChild(el);
+    this.views.add(v);
+    if (this.mode === "video") el.classList.add("vid");
+    if (this.frames.length || this.video) this.show(this.playing || this.state !== "idle");
+  }
+}
+
+function showCode(demo) {
+  demo.source().then((src) => {
+    $("codeName").textContent = demo.name + ".py";
+    $("codeText").textContent = src || "(no code found)";
+    $("code").classList.add("on");
+  });
+}
+$("codeClose").onclick = () => $("code").classList.remove("on");
+$("codeCopy").onclick = () => navigator.clipboard.writeText($("codeText").textContent);
+$("codeSave").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([$("codeText").textContent], { type: "text/x-python" }));
+  a.download = $("codeName").textContent; a.click();
+};
+
+// ---------------------------------------------------------------- documents
+class Doc {
+  constructor(pdf, name, attachments) {
+    this.id = nextId++; this.pdf = pdf; this.name = name; this.attachments = attachments;
+    this.spots = []; this.demos = new Map(); this.resume = [];
+    const container = this.container = document.createElement("div");
+    container.className = "viewerContainer";
+    container.innerHTML = '<div class="pdfViewer"></div>';
+    $("stack").appendChild(container);
+    const eventBus = this.eventBus = new V.EventBus();
+    const linkService = this.linkService = new V.PDFLinkService({ eventBus, externalLinkTarget: V.LinkTarget?.BLANK ?? 2 });
+    const findController = new V.PDFFindController({ eventBus, linkService });
+    const viewer = this.viewer = new V.PDFViewer({ container, viewer: container.firstChild, eventBus, linkService, findController });
+    linkService.setViewer(viewer);
+    eventBus.on("pagesinit", () => { viewer.currentScaleValue = "page-width"; });
+    eventBus.on("pagechanging", (e) => { if (this === cur) $("pageNum").value = e.pageNumber; });
+    // every time PDF.js (re)draws a page's links, put the live layer over each PyFig figure
+    eventBus.on("annotationlayerrendered", ({ source }) => {
+      for (const a of source.div.querySelectorAll('.annotationLayer a[href*="pyfig="]')) {
+        const demo = this.demoFor(a.href);
+        if (new URL(a.href).searchParams.get("pyfigrole") === "button") {
+          a.onclick = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const v = [...demo.views].find((v) => v.el.isConnected);
+            v?.el.scrollIntoView({ behavior: "smooth", block: "center" });
+            if (demo.state === "idle" || !demo.playing) demo.toggle();
+          };
+          a.removeAttribute("target");
+        } else if (!a.parentElement.querySelector(".pyfig")) {
+          demo.attach(a.parentElement);
+        }
+      }
+    });
+    // following a link inside the document remembers where you were
+    for (const f of ["goToDestination", "goToPage"]) {
+      const orig = linkService[f].bind(linkService);
+      linkService[f] = (...args) => { this.remember(); return orig(...args); };
+    }
+    viewer.setDocument(pdf);
+    linkService.setDocument(pdf);
+    this.pinchZoom();
+  }
+  // Two fingers zoom the page: the pages stretch while the fingers move, and PDF.js
+  // redraws them sharp at the new size when the fingers lift, keeping the same spot in view.
+  pinchZoom() {
+    const c = this.container, pages = c.firstChild;
+    let g = null;
+    const span = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    c.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 2) return;
+      const r = c.getBoundingClientRect();
+      const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+      const my = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+      g = { d: span(e.touches), scale: this.viewer.currentScale, mx, my, x: c.scrollLeft + mx, y: c.scrollTop + my, f: 1 };
+      pages.style.transformOrigin = `${g.x}px ${g.y}px`;
+    }, { passive: true });
+    c.addEventListener("touchmove", (e) => {
+      if (!g || e.touches.length !== 2) return;
+      e.preventDefault();
+      const lo = 0.25 / g.scale, hi = 6 / g.scale;
+      g.f = Math.min(hi, Math.max(lo, span(e.touches) / g.d));
+      pages.style.transform = `scale(${g.f})`;
+    }, { passive: false });
+    const end = () => {
+      if (!g) return;
+      const { f, scale, x, y, mx, my } = g;
+      g = null;
+      pages.style.transform = "";
+      if (Math.abs(f - 1) < 0.02) return;
+      this.viewer.currentScale = scale * f;
+      const put = () => { c.scrollLeft = x * f - mx; c.scrollTop = y * f - my; };
+      put(); requestAnimationFrame(put); setTimeout(put, 120);
+    };
+    c.addEventListener("touchend", (e) => { if (e.touches.length < 2) end(); });
+    c.addEventListener("touchcancel", end);
+    // Safari's own pinch would zoom the whole page, toolbar included
+    for (const t of ["gesturestart", "gesturechange", "gestureend"]) c.addEventListener(t, (e) => e.preventDefault());
+  }
+  demoFor(href) {
+    const name = new URL(href).searchParams.get("pyfig");
+    if (!this.demos.has(name)) this.demos.set(name, new Demo(this, name, href));
+    return this.demos.get(name);
+  }
+  here() {
+    return { scale: this.viewer.currentScaleValue, top: this.container.scrollTop, left: this.container.scrollLeft };
+  }
+  remember() {
+    this.spots.push(this.here());
+    history.pushState({ doc: this.id, depth: this.spots.length }, "");
+  }
+  goBackTo(depth) {
+    while (this.spots.length > depth) {
+      const s = this.spots.pop();
+      if (this.spots.length === depth) {
+        // changing the zoom scrolls by itself, so only re-zoom if it changed, then scroll
+        if (String(this.viewer.currentScaleValue) !== String(s.scale)) this.viewer.currentScaleValue = s.scale;
+        const put = () => { this.container.scrollTop = s.top; this.container.scrollLeft = s.left; };
+        put(); requestAnimationFrame(put); setTimeout(put, 120);
+      }
+    }
+  }
+  setVisible(on) {
+    this.container.classList.toggle("shown", on);
+    if (!on) {                               // pause its figures while it is hidden
+      this.resume = [...this.demos.values()].filter((d) => d.playing);
+      for (const d of this.resume) { d.playing = false; d.show(); }
+    } else {
+      for (const d of this.resume) { d.playing = true; d.show(); }
+      this.resume = [];
+      if (this.viewer.currentScaleValue === "page-width") this.viewer.currentScaleValue = "page-width";
+      this.viewer.update();
+    }
+  }
+  close() {
+    for (const d of this.demos.values()) { clearInterval(d.timer); d.dropVideo(); frameBytes -= d.bytes || 0; }
+    this.container.remove();
+    this.pdf.destroy();
+  }
+}
+
+function renderTabs() {
+  const bar = $("tabs");
+  bar.innerHTML = "";
+  for (const d of docs) {
+    const t = document.createElement("div");
+    t.className = "tab" + (d === cur && !document.body.classList.contains("showHome") ? " on" : "");
+    t.title = d.name;
+    t.innerHTML = `<span></span><button title="Close this document">✕</button>`;
+    t.firstChild.textContent = d.name;
+    t.onclick = (e) => {
+      if (e.target.tagName === "BUTTON") return closeDoc(d);
+      if (d !== cur || document.body.classList.contains("showHome")) {
+        history.pushState({ doc: d.id, depth: d.spots.length }, "");
+        show(d);
+      }
+    };
+    bar.appendChild(t);
+  }
+  const plus = document.createElement("button");
+  plus.className = "plus"; plus.textContent = "+"; plus.title = "Open another PDF";
+  plus.onclick = pickPdfs;
+  bar.appendChild(plus);
+  document.body.classList.toggle("hasTabs", docs.length > 0);
+  // the start screen lists the open documents
+  const list = $("homeDocs");
+  list.innerHTML = "";
+  for (const d of docs) {
+    const b = document.createElement("button");
+    b.className = "doc";
+    b.innerHTML = `<svg viewBox="0 0 18 22" fill="none" stroke="currentColor" stroke-width="1.4">
+      <path d="M2 1h9l5 5v15H2z"/><path d="M11 1v5h5"/></svg><span class="name"></span>
+      <span class="meta"></span><span class="go">→</span>`;
+    b.querySelector(".name").textContent = d.name;
+    b.querySelector(".meta").textContent = d.pdf.numPages + (d.pdf.numPages === 1 ? " page" : " pages") +
+      (d.live ? ` · ${d.live} live figure${d.live === 1 ? "" : "s"}` : "");
+    b.onclick = () => { history.pushState({ doc: d.id, depth: d.spots.length }, ""); show(d); };
+    list.appendChild(b);
+  }
+  waveRun();
+}
+
+function show(d) {
+  if (cur && cur !== d) cur.setVisible(false);
+  cur = d;
+  d.setVisible(true);
+  document.body.classList.add("hasDoc");
+  showHome(false);
+  document.title = d.name + " — PyFig Reader";
+  $("pageCount").textContent = "/ " + d.pdf.numPages;
+  $("pageNum").value = d.viewer.currentPageNumber || 1;
+  renderTabs();
+}
+
+function closeDoc(d) {
+  const i = docs.indexOf(d);
+  docs.splice(i, 1);
+  d.close();
+  if (cur === d) {
+    cur = null;
+    const next = docs[Math.min(i, docs.length - 1)];
+    if (next) { history.pushState({ doc: next.id, depth: next.spots.length }, ""); show(next); }
+    else { document.body.classList.remove("hasDoc"); history.pushState({ home: true }, ""); showHome(true); }
+  }
+  renderTabs();
+}
+
+// ---------------------------------------------------------------- the string on the start screen
+// A hump released at rest on a string splits into two halves that run apart and come back:
+// u(x,t) = g(x - ct)/2 + g(x + ct)/2. The piece [x1, x2] is drawn darker, as in Figure 1.
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let waveOn = false;
+function waveDraw(ms) {
+  const s = still ? 0 : (1 - Math.cos(ms / 1600)) / 2, shift = 230 * s;
+  const g = (y) => 50 * Math.exp(-((y / 44) ** 2));
+  const pt = (x) => `${x} ${(72 - (g(x - 320 - shift) + g(x - 320 + shift)) / 2).toFixed(1)}`;
+  const line = (a, b) => { let d = "M" + pt(a); for (let x = a + 4; x <= b; x += 4) d += "L" + pt(x); return d; };
+  $("waveRest").setAttribute("d", line(0, 640));
+  $("wavePiece").setAttribute("d", line(240, 400));
+}
+function waveRun() {
+  const visible = !document.body.classList.contains("hasDoc") || document.body.classList.contains("showHome");
+  if (still) { waveDraw(0); return; }
+  if (visible && !waveOn) {
+    waveOn = true;
+    const step = (ms) => {
+      const vis = !document.body.classList.contains("hasDoc") || document.body.classList.contains("showHome");
+      if (!vis) { waveOn = false; return; }
+      waveDraw(ms);
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+}
+waveDraw(0);
+waveRun();
+
+// ---------------------------------------------------------------- back and the start screen
+// Back returns to where you were before following a link, or to the document or the start
+// screen you came from. Every step is a browser history entry, so the browser's own Back
+// button and Alt+Left do the same.
+function showHome(on) {
+  if (on && cur) cur.setVisible(false);
+  if (on) $("hint").classList.remove("on");
+  if (!on && cur && !cur.container.classList.contains("shown")) cur.setVisible(true);
+  document.body.classList.toggle("showHome", on);
+  if (on) document.title = "PyFig Reader";
+  renderTabs();
+}
+window.addEventListener("popstate", (e) => {
+  const st = e.state || {};
+  const d = st.doc && docs.find((x) => x.id === st.doc);
+  if (d) { show(d); d.goBackTo(st.depth || 0); }
+  else if (st.doc && cur) show(cur);                // that document has been closed
+  else showHome(true);
+});
+$("back").onclick = () => history.back();
+$("brand").onclick = () => { if (!document.body.classList.contains("showHome")) history.pushState({ home: true }, ""); showHome(true); };
+$("homeOpen").onclick = pickPdfs;
+$("hintClose").onclick = () => $("hint").classList.remove("on");
+history.replaceState({ home: true }, "");
+
+// ---------------------------------------------------------------- opening files
+// `base` is the PDF's own address, when known (not for a file chosen in the browser's Open
+// dialog): its recorded videos are in videos/ next to it
+async function open(data, name, base = null, videoList = null) {
+  const again = docs.find((d) => d.name === name && d.size === data.length);
+  if (again) { history.pushState({ doc: again.id, depth: again.spots.length }, ""); return show(again); }
+  const videoBase = base ? new URL("videos/", base).href : null;
+  const videosReady = videoIndex(videoBase, videoList);
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const d = new Doc(pdf, name, (await pdf.getAttachments()) || {});
+  d.size = data.length; d.videoBase = videoBase; d.videosReady = videosReady;
+  docs.push(d);
+  history.pushState({ doc: d.id, depth: 0 }, "");
+  show(d);
+  // start Python early if the document has any PyFig figure, and say so
+  const names = new Set();
+  for (let i = 1; i <= pdf.numPages; i++) {
+    for (const a of await (await pdf.getPage(i)).getAnnotations()) {
+      if (a.url && a.url.includes("pyfig=")) names.add(new URL(a.url).searchParams.get("pyfig"));
+    }
+  }
+  d.live = names.size;
+  renderTabs();
+  if (names.size) {
+    // Python is started early only if some figure has no video (it is a large download on a phone)
+    const videos = await videosReady;
+    const recorded = [...names].filter((n) => videos.has(n)).length;
+    if (recorded < names.size) startPython();
+    else if (!worker) pyStatus("Python: <b>when needed</b>", "ready");
+    $("hintText").textContent = `${name}: ` + (names.size === 1 ? "1 live figure" :
+      `${names.size} live figures`) + (matchMedia("(hover: none)").matches ? ". Tap" : ". Click") + " ▶ on a figure to play it.";
+    $("hint").classList.add("on");
+    setTimeout(() => $("hint").classList.remove("on"), 9000);
+  }
+}
+async function openFiles(files) {
+  // the desktop app knows where a dropped file is; a browser does not
+  for (const f of files) await open(new Uint8Array(await f.arrayBuffer()), f.name, await window.pyfigApp?.baseFor?.(f));
+}
+// The Open dialog starts in the folder used last: the desktop app remembers it; Chrome and Edge
+// remember it for a file picker with an id; Firefox's own dialog remembers it anyway.
+async function pickPdfs() {
+  if (window.pyfigApp?.pickPdfs) return window.pyfigApp.pickPdfs();
+  if (window.showOpenFilePicker) {
+    try {
+      const hs = await showOpenFilePicker({ id: "pyfig-pdf", multiple: true,
+        types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }] });
+      return openFiles(await Promise.all(hs.map((h) => h.getFile())));
+    } catch (e) { if (e.name === "AbortError") return; }
+  }
+  $("file").click();
+}
+$("openLbl").addEventListener("click", (e) => {
+  if (e.target.id === "file") return;
+  if (window.pyfigApp?.pickPdfs || window.showOpenFilePicker) { e.preventDefault(); pickPdfs(); }
+});
+$("file").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  openFiles(files);
+});
+document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("drag"); });
+document.addEventListener("dragleave", () => document.body.classList.remove("drag"));
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); document.body.classList.remove("drag");
+  openFiles([...e.dataTransfer.files].filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf"));
+});
+// in the desktop app, Python is packaged with the reader
+if (window.pyfigApp) $("pyCard").textContent = "Python (Pyodide, with numpy and matplotlib) is built into " +
+  "this app, so nothing is downloaded and it works offline. It is ready a few seconds after a document opens.";
+// in the desktop app, PDFs opened from the file manager or the command line arrive here
+window.pyfigApp?.onOpen(async (files) => {
+  for (const f of files) await open(new Uint8Array(f.data), f.name, f.base);
+});
+// ---------------------------------------------------------------- installed as an app (phones too)
+// The service worker lets browsers install the reader as an app and keeps it working offline;
+// it needs https (or this computer), and the desktop app does not use it.
+const secure = location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname);
+if ("serviceWorker" in navigator && secure && !window.pyfigApp) navigator.serviceWorker.register("sw.js");
+// Android: PDFs shared to PyFig Reader were stored by the service worker; open them
+async function openShared() {
+  const cache = await caches.open("pyfig-share");
+  for (const req of await cache.keys()) {
+    const res = await cache.match(req);
+    await open(new Uint8Array(await res.arrayBuffer()), decodeURIComponent(req.url.split("/").pop()));
+    await cache.delete(req);
+  }
+}
+// desktop Chrome and Edge: an installed reader can be the app that opens PDFs
+if ("launchQueue" in window) launchQueue.setConsumer(async (params) => {
+  for (const h of params.files) { const f = await h.getFile(); await open(new Uint8Array(await f.arrayBuffer()), f.name); }
+});
+
+const q = new URLSearchParams(location.search);
+if (q.has("shared") && "caches" in window) await openShared();
+// fetch refuses file:// addresses, which the Chrome extension passes for PDFs on this computer
+function getBytes(url, opts) {
+  if (new URL(url, location.href).protocol !== "file:")
+    return fetch(url, opts).then((r) => { if (!r.ok) throw new Error(r.status + " " + r.statusText); return r.arrayBuffer(); });
+  return new Promise((ok, fail) => {
+    const x = new XMLHttpRequest();
+    x.open("GET", url); x.responseType = "arraybuffer";
+    x.onload = () => ok(x.response); x.onerror = () => fail(new Error("no access to local files"));
+    x.send();
+  });
+}
+// A page may come with its document built in (the offline copy of a website: a local page can
+// read no file, so a script next to it holds the PDF and its list of videos):
+// pyfigEmbedded = { name, pdf: base64, file: the PDF's address (its videos/ are next to it), videos }
+const E = globalThis.pyfigEmbedded;
+if (E?.pdf) {
+  const bin = atob(E.pdf), data = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+  delete E.pdf;
+  await open(data, E.name, new URL(E.file, location.href).href, E.videos || null);
+}
+const names = q.getAll("name");
+for (const [i, file] of q.getAll("file").entries()) {
+  const name = names[i] || decodeURIComponent(new URL(file, location.href).pathname.split("/").pop()) || "document.pdf";
+  try { await open(new Uint8Array(await getBytes(file)), name, new URL(file, location.href).href); }
+  catch (e) { $("hintText").textContent = `Could not open ${name}: ${e.message}`; $("hint").classList.add("on"); }
+}
+</script>
+</body>
+</html>
