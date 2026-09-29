@@ -282,8 +282,9 @@
   <ol class="steps">
     <li><span class="num">1</span><div><h3>Open</h3><p>Open one PDF or several; each gets a tab.
       Any PDF works. Those without live figures simply read as usual.</p></div></li>
-    <li><span class="num">2</span><div><h3>Wait a moment</h3><p>Figures with a recorded video play at
-      once. Others need a few seconds after opening, until the top right says <b>Python: ready</b>.</p></div></li>
+    <li><span class="num">2</span><div><h3>Play at once</h3><p>Figures that come with a recorded video
+      start the moment you click them. A figure without one runs its Python code, which takes a few
+      seconds the first time (the top right then says <b>Python: ready</b>).</p></div></li>
     <li><span class="num">3</span><div><h3>Play</h3><p>Click <b>▶</b> on a figure, and click again to pause.
       Hover for <b>⟲</b>, from the start, <b>■</b>, the printed figure, and <b>&lt;/&gt;</b>, its code.</p></div></li>
     <li><span class="num">4</span><div><h3>Go back</h3><p><b>← Back</b> or <kbd>Alt</kbd>+<kbd>←</kbd>
@@ -294,8 +295,9 @@
   <div class="notes">
     <div><h3>An ordinary PDF</h3><p>A live figure is a normal picture with its script inside the file.
       Other viewers show the picture, and clicking it opens the animation on the web.</p></div>
-    <div><h3>Python, right here</h3><p id="pyCard">The reader starts Python (Pyodide) in this window.
-      The first time, that is a 30&nbsp;MB download; after that it is ready in about 5 seconds.</p></div>
+    <div><h3>Python, right here</h3><p id="pyCard">Every figure's code can also run live: press
+      <b>Py</b> on a figure. The reader then starts Python (Pyodide) in this window; the first time,
+      that is a 30&nbsp;MB download, after that it is ready in about 5 seconds.</p></div>
     <div><h3>Safe to run</h3><p>Code runs only when you click a figure, in the browser's sandbox. It
       cannot touch your files, and nothing is uploaded.</p></div>
   </div>
@@ -1014,7 +1016,8 @@ document.addEventListener("drop", (e) => {
 });
 // in the desktop app, Python is packaged with the reader
 if (window.pyfigApp) $("pyCard").textContent = "Python (Pyodide, with numpy and matplotlib) is built into " +
-  "this app, so nothing is downloaded and it works offline. It is ready a few seconds after a document opens.";
+  "this app, so nothing is downloaded and it works offline. It is needed only for figures without a recorded " +
+  "video, or when you press Py; it is then ready in a few seconds.";
 // in the desktop app, PDFs opened from the file manager or the command line arrive here
 window.pyfigApp?.onOpen(async (files) => {
   for (const f of files) await open(new Uint8Array(f.data), f.name, f.base);
